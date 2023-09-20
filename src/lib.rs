@@ -1,6 +1,7 @@
-#![no_std]
+//#![no_std]
 use soroban_sdk::{
-    assert_with_error, contract, contracterror, contractimpl, contracttype, vec, BytesN, Env, Vec,
+    assert_with_error, contract, contracterror, contractimpl, contracttype, symbol_short, vec,
+    BytesN, Env, Symbol, Vec,
 };
 use tiny_keccak::{Hasher, Keccak};
 
@@ -17,16 +18,12 @@ const MAX_LEAVES: u64 = u64::pow(2, TREE_DEPTH as u32) - 1;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Tree {
+pub struct MerkleTree {
     branch: Vec<BytesN<32>>,
     count: u32,
 }
 
-#[contract]
-pub struct Contract;
-
-#[contractimpl]
-impl Contract {
+impl MerkleTree {
     fn convert_u64_to_byte_array(num: u64) -> [u8; 32] {
         let mut byte_array: [u8; 32] = [0; 32];
 
@@ -40,7 +37,7 @@ impl Contract {
         return byte_array;
     }
 
-    fn keccak256(items: Vec<[u8; 32]>) -> [u8; 32] {
+    pub fn keccak256(items: Vec<[u8; 32]>) -> [u8; 32] {
         let mut hasher = Keccak::v256();
         let mut output: [u8; 32] = [0; 32];
 
@@ -57,28 +54,34 @@ impl Contract {
      * @dev Reverts if tree is full
      * @param _node Element to insert into tree
      **/
-    pub fn insert(env: Env, mut _tree: Tree, mut _node: BytesN<32>) {
+    pub fn insert(&mut self, env: Env, mut _node: BytesN<32>) {
         assert_with_error!(
             &env,
-            (_tree.count as u64) < MAX_LEAVES,
+            (self.count as u64) < MAX_LEAVES,
             Error::MerkleTreeFull
         );
 
         assert_with_error!(
             &env,
-            _tree.branch.len() == TREE_DEPTH as u32,
+            self.branch.len() <= TREE_DEPTH as u32,
             Error::MerkleTreeInvalidVecSize
         );
 
-        _tree.count += 1;
-        let mut size = _tree.count;
+        self.count += 1;
+        let mut size = self.count;
         for i in 0..TREE_DEPTH as u32 {
             if (size & 1) == 1 {
-                _tree.branch.insert(i, _node);
+                let item_pos = self.branch.get(i);
+
+                if item_pos.is_none() {
+                    self.branch.insert(i, _node);
+                } else {
+                    self.branch.set(i, _node);
+                }
                 return;
             }
 
-            let leaf = _tree.branch.get(i).expect("Error to get leaf");
+            let leaf = self.branch.get(i).expect("Error to get leaf");
 
             let _vec = vec![&env, leaf.to_array(), _node.to_array()];
 
@@ -98,25 +101,29 @@ impl Contract {
      * @param _zeroes Array of zero hashes
      * @return _current Calculated root of `_tree`
      **/
-    fn root_with_ctx(env: Env, _tree: Tree, _zeroes: Vec<BytesN<32>>) -> BytesN<32> {
+    fn root_with_ctx(&self, env: Env, _zeroes: Vec<BytesN<32>>) -> BytesN<32> {
         assert_with_error!(
             &env,
-            _tree.branch.len() == TREE_DEPTH as u32 && _zeroes.len() == TREE_DEPTH as u32,
+            self.branch.len() <= TREE_DEPTH as u32 && _zeroes.len() == TREE_DEPTH as u32,
             Error::MerkleTreeInvalidVecSize
         );
 
         let mut _current = BytesN::from_array(&env, &[0; 32]);
-        let _index = _tree.count;
+        let _index = self.count;
+
         for i in 0..TREE_DEPTH as u32 {
             let _ith_bit = (_index >> i) & 0x01;
-            let _next = _tree.branch.get(i).expect("Error to get leaf");
+            let _next = self
+                .branch
+                .get(i)
+                .unwrap_or(BytesN::from_array(&env, &[0; 32]));
             if _ith_bit == 1 {
-                let _vec = vec![&env, _next.to_array(), _current.to_array()];
+                let _vec = vec![&env, _next.clone().to_array(), _current.clone().to_array()];
                 let value = Self::keccak256(_vec);
                 _current = BytesN::from_array(&env, &value)
             } else {
                 let hash = _zeroes.get_unchecked(i);
-                let _vec = vec![&env, _current.to_array(), hash.to_array()];
+                let _vec = vec![&env, _current.clone().to_array(), hash.clone().to_array()];
                 let value = Self::keccak256(_vec);
                 _current = BytesN::from_array(&env, &value)
             }
@@ -125,17 +132,22 @@ impl Contract {
     }
 
     /// @notice Calculates and returns`_tree`'s current root
-    pub fn root(env: Env, _tree: Tree) -> BytesN<32> {
+    pub fn root(&self, env: Env) -> BytesN<32> {
         let _zeroes = Self::zero_hashes(env.clone());
-        return Self::root_with_ctx(env.clone(), _tree, _zeroes);
+        return Self::root_with_ctx(&self, env.clone(), _zeroes);
     }
 
-    pub fn branch_root(env: Env, _item: BytesN<32>, _branch: Vec<BytesN<32>>, _index: u64) -> BytesN<32> {
+    pub fn branch_root(
+        env: Env,
+        _item: BytesN<32>,
+        _branch: Vec<BytesN<32>>,
+        _index: u64,
+    ) -> BytesN<32> {
         let mut _current = BytesN::from_array(&env, &Self::convert_u64_to_byte_array(_index));
 
         for i in 0..TREE_DEPTH as u32 {
             let _ith_bit = (_index >> i) & 0x01;
-            let _next = _branch.get(i).expect("Error to get leaf");
+            let _next = _branch.get(i).unwrap_or(BytesN::from_array(&env, &[0; 32]));
             if _ith_bit == 1 {
                 let _vec = vec![&env, _next.to_array(), _current.to_array()];
                 let value = Self::keccak256(_vec);
@@ -464,6 +476,43 @@ impl Contract {
                 ],
             ),
         );
+
         return _zeroes;
     }
 }
+
+const TREE: Symbol = symbol_short!("TREE");
+
+#[contract]
+pub struct Contract;
+
+#[contractimpl]
+impl Contract {
+    pub fn get_tree(env: Env) -> MerkleTree {
+        //let array = [BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32]),BytesN::from_array(&env, &[0;32])];
+        return env.storage().instance().get(&TREE).unwrap_or(MerkleTree {
+            branch: vec![&env],
+            count: 0,
+        });
+    }
+
+    pub fn insert(env: Env, node: BytesN<32>) -> MerkleTree {
+        let mut tree = Self::get_tree(env.clone());
+
+        tree.insert(env.clone(), node);
+
+        // Save the tree.
+        env.storage().instance().set(&TREE, &tree);
+
+        return tree;
+    }
+
+    pub fn get_root(env: Env) -> BytesN<32> {
+        let tree = Self::get_tree(env.clone());
+        let root = tree.root(env.clone());
+        return root;
+    }
+}
+
+#[cfg(test)]
+mod tests;
