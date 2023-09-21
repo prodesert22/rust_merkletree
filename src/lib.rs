@@ -1,4 +1,4 @@
-//#![no_std]
+#![no_std]
 use soroban_sdk::{
     assert_with_error, contract, contracterror, contractimpl, contracttype, symbol_short, vec,
     BytesN, Env, Symbol, Vec,
@@ -24,19 +24,6 @@ pub struct MerkleTree {
 }
 
 impl MerkleTree {
-    fn convert_u64_to_byte_array(num: u64) -> [u8; 32] {
-        let mut byte_array: [u8; 32] = [0; 32];
-
-        for i in 0..64 {
-            // Get the i-th bit from the u64
-            let bit = (num >> i) & 1;
-
-            // Set the corresponding bit in the [u8; 32] array
-            byte_array[(31 - (i / 8)) as usize] |= (bit << (i % 8)) as u8;
-        }
-        return byte_array;
-    }
-
     pub fn keccak256(items: Vec<[u8; 32]>) -> [u8; 32] {
         let mut hasher = Keccak::v256();
         let mut output: [u8; 32] = [0; 32];
@@ -143,7 +130,7 @@ impl MerkleTree {
         _branch: Vec<BytesN<32>>,
         _index: u64,
     ) -> BytesN<32> {
-        let mut _current = BytesN::from_array(&env, &Self::convert_u64_to_byte_array(_index));
+        let mut _current = _item;
 
         for i in 0..TREE_DEPTH as u32 {
             let _ith_bit = (_index >> i) & 0x01;
