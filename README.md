@@ -14,7 +14,7 @@ Return the root of tree.
 ### Branch_root
 Calculates and returns the merkle root for the given leaf.
 
-## Keccak256
+### Keccak256
 Helper function to calculate the keccak256 hash of values.
 
 ## Run on Sandbox
