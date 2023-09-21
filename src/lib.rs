@@ -124,6 +124,14 @@ impl MerkleTree {
         return Self::root_with_ctx(&self, env.clone(), _zeroes);
     }
 
+    /**
+     * @notice Calculates and returns the merkle root for the given leaf
+     * `_item`, a merkle branch, and the index of `_item` in the tree.
+     * @param _item Merkle leaf
+     * @param _branch Merkle proof
+     * @param _index Index of `_item` in tree
+     * @return Calculated merkle root
+     **/
     pub fn branch_root(
         env: Env,
         _item: BytesN<32>,
@@ -470,6 +478,9 @@ impl MerkleTree {
 
 const TREE: Symbol = symbol_short!("TREE");
 
+/**
+ * This a basic helper contract used to assist with tests.
+ */
 #[contract]
 pub struct Contract;
 
